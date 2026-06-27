@@ -355,7 +355,7 @@ terraform destroy -auto-approve
 
 ### Resultado esperado desta parte
 
-Pipeline `API Gateway → Lambda produtora → SQS → Lambda consumidora → S3`, com **DLQ** para falhas. O produtor responde em milissegundos (só enfileira) e a fila absorve o pico.
+Pipeline `API Gateway → Lambda produtora → SQS → Lambda consumidora → S3`, com **DLQ** para falhas. O produtor responde em milissegundos (só enfileira) e a fila absorve o pico. Para ver isso de verdade, você vai simular o pico com **500 requisições** quase simultâneas.
 
 ![Arquitetura da Fase 2: API Gateway, Lambda produtora, fila SQS, Lambda consumidora, S3 e DLQ para falhas](diagramas/fase-2.png)
 
@@ -405,28 +405,24 @@ A fila é um **buffer**: se chegam 10.000 pedidos num segundo, eles esperam na f
 </details>
 
 <a id="passo-11"></a>
-**11.** Dispare os mesmos 10 pedidos, usando a variável `$API` capturada no passo 10.2:
+**11.** Simule o **pico**: dispare **500 pedidos** contra a API, usando a variável `$API` capturada no passo 10.2. O script cicla os 10 pedidos fixos (50 vezes) com IDs únicos `PED-0001..PED-0500` — então o resultado é determinístico (mesmos 500 objetos para todo aluno):
 
 ```bash
 cd /workspaces/fiap-cloud-engineering/03-Compute/03-Lambda
-for p in $(seq 0 9); do
-  pedido=$(python3 -c "import json;print(json.dumps(json.load(open('dados/pedidos.json'))[$p]))")
-  curl -s -X POST "$API/pedidos" -H "Content-Type: application/json" -d "$pedido"
-  echo ""
-done
+python3 dados/publicar_500.py "$API"
 ```
 
-Saída esperada: 10 linhas como `{"status": "enfileirado", "pedido_id": "PED-0001"}`. Note: **`enfileirado`**, não `gravado` — o produtor respondeu antes de o S3 ser tocado. É o desacoplamento em ação.
+Saída esperada (poucos segundos): `500/500 pedidos publicados em Ns`. Cada chamada respondeu `202 Accepted` (**`enfileirado`**, não `gravado`) — o produtor responde antes de o S3 ser tocado. É o desacoplamento absorvendo o pico: 500 requisições quase simultâneas entram na fila sem travar o app.
 
 <a id="passo-12"></a>
-**12.** Aguarde alguns segundos e confirme que a consumidora processou a fila e gravou no S3 (**go/no-go**). Usa a variável `$BUCKET` do passo 10.2:
+**12.** Aguarde a consumidora drenar a fila e confirme que os 500 chegaram ao S3 (**go/no-go**). Usa a variável `$BUCKET` do passo 10.2:
 
 ```bash
-sleep 10
+sleep 20
 aws s3 ls s3://$BUCKET/pedidos/dt=2026-03-15/ | wc -l
 ```
 
-Saída esperada: `10`. A fila esvaziou e os 10 pedidos chegaram ao data lake — agora de forma assíncrona.
+Saída esperada: `500`. A fila absorveu o pico e a consumidora gravou os 500 pedidos no data lake — de forma assíncrona, no ritmo dela. Se ainda não deu 500, espere mais alguns segundos e rode de novo (a consumidora pode estar terminando de processar os últimos lotes).
 
 ![](img/f2-s3.png)
 
@@ -437,7 +433,7 @@ Saída esperada: `10`. A fila esvaziou e os 10 pedidos chegaram ao data lake —
 terraform -chdir=/workspaces/fiap-cloud-engineering/03-Compute/03-Lambda/fase-2-fila output -raw dashboard_url && echo
 ```
 
-Abra a URL impressa — ou vá direto pelo link **[CloudWatch → Dashboards → PedeJa-Fase2-Fila](https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards/dashboard/PedeJa-Fase2-Fila)**. Compare com o da Fase 1: agora você vê a **profundidade da fila** subir e zerar, a **latência do produtor vs consumidor** (o produtor é muito mais rápido) e a **DLQ** (vazia, porque nada falhou).
+Abra a URL impressa — ou vá direto pelo link **[CloudWatch → Dashboards → PedeJa-Fase2-Fila](https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards/dashboard/PedeJa-Fase2-Fila)**. Com os 500 pedidos, agora dá para **ver o desacoplamento acontecer**: a **profundidade da fila** sobe (o backlog que entrou no pico) e depois zera conforme a consumidora drena; a **latência do produtor** fica baixíssima (só enfileira) contra a da **consumidora** (que grava no S3); e a **DLQ** segue vazia (nada falhou).
 
 ![](img/f2-dashboard.png)
 
@@ -455,9 +451,9 @@ terraform destroy -auto-approve
 ### Checkpoint
 
 - [x] `terraform apply` criou 12 recursos (2 Lambdas, SQS, DLQ, API, dashboard).
-- [x] Os POSTs retornaram `enfileirado` (produtor desacoplado do S3).
-- [x] Os 10 pedidos chegaram ao S3 via consumidora.
-- [x] Você viu o backlog da fila e a latência produtor vs consumidor no dashboard.
+- [x] Os 500 POSTs retornaram `enfileirado` (produtor desacoplado do S3).
+- [x] Os 500 pedidos chegaram ao S3 via consumidora (`aws s3 ls ... | wc -l` = 500).
+- [x] Você viu o backlog da fila subir e zerar, e a latência produtor vs consumidor no dashboard.
 - [x] Você destruiu a Fase 2.
 
 ---
