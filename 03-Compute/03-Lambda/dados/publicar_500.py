@@ -72,17 +72,19 @@ def barra(feitos, ok, total, t0):
     cheio = pct // 5
     barra_txt = "#" * cheio + "." * (20 - cheio)
     taxa = feitos / max(time.time() - t0, 0.001)
-    sys.stdout.write(
+    # Barra vai para stderr: e feedback ao vivo, nao resultado. Assim, ao capturar
+    # a saida (stdout), so o "Concluido:" entra no contexto, nao os N estados da barra.
+    sys.stderr.write(
         f"\r[{barra_txt}] {pct:3d}%  {feitos}/{total} pedidos"
         f"  (ok: {ok}, {taxa:.0f}/s)   "
     )
-    sys.stdout.flush()
+    sys.stderr.flush()
 
 
 def main():
     t0 = time.time()
     feitos = ok = 0
-    print(f"Publicando {TOTAL} pedidos em https://{HOST}/pedidos ...")
+    print(f"Publicando {TOTAL} pedidos em https://{HOST}/pedidos ...", file=sys.stderr)
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as ex:
         futuros = [ex.submit(envia, i) for i in range(TOTAL)]
         for fut in concurrent.futures.as_completed(futuros):
@@ -90,7 +92,7 @@ def main():
             ok += 1 if fut.result() else 0
             if feitos % 10 == 0 or feitos == TOTAL:
                 barra(feitos, ok, TOTAL, t0)
-    print()
+    print(file=sys.stderr)  # quebra a linha da barra (que vive no stderr)
     dur = time.time() - t0
     print(f"Concluido: {ok}/{TOTAL} pedidos publicados em {dur:.0f}s.")
     if ok < TOTAL:
