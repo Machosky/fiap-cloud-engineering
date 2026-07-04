@@ -17,6 +17,10 @@ Os comandos deste trabalho rodam em **dois ambientes**: o provisionamento e a ma
 
 Você é o engenheiro de dados da **PedeJá**. Os pedidos hoje vivem num **servidor de arquivos legado (EFS)** — um arquivo `.json` por pedido, como o sistema antigo gravava. A **Marina, líder de Dados**, quer modernizar: tirar os dados do file system, colocá-los no **data lake (S3)**, e disponibilizar um **resumo de faturamento por cidade** através de uma **API**. Você vai construir exatamente essa jornada, reaproveitando tudo que praticou nas demos.
 
+![Arquitetura do Trabalho Final: EFS → S3 → Lambda Graviton → API](diagramas/arquitetura-final.png)
+
+Acompanhe o caminho do dado no diagrama acima: os pedidos saem do **EFS legado**, a **EC2** faz o `aws s3 sync` para o prefixo `raw/` do **S3**, a **Lambda PROCESSA (Graviton)** lê esse prefixo e grava o faturamento em `resumo/`, e a **Lambda API (Graviton) + API Gateway** servem o resultado no `GET /faturamento`.
+
 ## Principais pontos de aprendizagem
 
 - Migrar dados de **file storage (EFS)** para **object storage (S3)** e por que essa é a direção certa para um data lake analítico.
@@ -92,9 +96,7 @@ INSTANCE_ID=i-0abc123...
 API_URL=https://xxxx.execute-api.us-east-1.amazonaws.com
 ```
 
-<!-- PRINT SUGERIDO: img/tf-init.png
-     Terminal mostrando as 3 linhas finais (BUCKET, INSTANCE_ID, API_URL) do init.sh. -->
-![](img/tf-init.png)
+> 📸 **Print sugerido:** o terminal mostrando as 3 linhas finais (`BUCKET`, `INSTANCE_ID`, `API_URL`) do `init.sh`.
 
 <details>
 <summary><b>⚠ Se der erro: <code>nenhum bucket base-config- encontrado</code></b></summary>
@@ -151,9 +153,7 @@ Os 10 arquivos de pedido copiados do EFS para `s3://$BUCKET/raw/`.
 > [!NOTE]
 > Diferente da demo de Storage, aqui você **não precisa** configurar o log group `/ssm/ssh` nem as preferências do Session Manager — este trabalho não audita a sessão. Conecte direto.
 
-<!-- PRINT SUGERIDO: img/ssm-conectar.png
-     Aba "Gerenciador de sessões" com a pedeja-migracao-instance selecionada e o botão Conectar. -->
-![](img/ssm-conectar.png)
+> 📸 **Print sugerido:** a aba "Gerenciador de sessões" com a `pedeja-migracao-instance` selecionada e o botão Conectar.
 
 <a id="passo-4"></a>
 **4.** **Dentro da sessão SSM da EC2** (não no Codespaces — é outro terminal), confirme que `/efs` está mesmo montado como EFS (e não é uma pasta comum no disco local) e que os 10 pedidos estão lá. Este é o **go/no-go** de entrada:
@@ -205,9 +205,7 @@ aws s3 ls s3://$BUCKET/raw/ --region us-east-1 | wc -l
 
 Saída esperada: 10 linhas `upload: ... to s3://.../raw/PED-000X.json`, e ao final `10` (o **go/no-go** da migração). Se não deu 10, espere alguns segundos e rode o `sync` de novo.
 
-<!-- PRINT SUGERIDO: img/migracao.png
-     Saída do aws s3 sync mostrando os 10 uploads para raw/ e o "10" final. -->
-![](img/migracao.png)
+> 📸 **Print sugerido:** a saída do `aws s3 sync` mostrando os 10 uploads para `raw/` e o `10` final da conferência.
 
 <details>
 <summary><b>💡 Clique para entender — por que <code>aws s3 sync</code> e não copiar pelo laptop</b></summary>
@@ -329,9 +327,7 @@ O `resumo/faturamento.json` deve conter (o faturamento é determinístico — **
 | Belo Horizonte | 2 | 73.0 |
 | **Total** | **10** | **596.7** |
 
-<!-- PRINT SUGERIDO: img/processa.png
-     Terminal mostrando o resultado da invocação e o conteúdo do faturamento.json com os 4 valores. -->
-![](img/processa.png)
+> 📸 **Print sugerido:** o terminal mostrando o resultado da invocação e o conteúdo do `faturamento.json` com os 4 valores por cidade.
 
 Confirme que a Lambda roda mesmo em **Graviton** — é uma das decisões que você defende no `DECISION.md`:
 
@@ -404,12 +400,10 @@ Saída esperada: o mesmo JSON de faturamento por cidade do passo 8 (as **4 cidad
 > [!NOTE]
 > Se o `apply` disser **`No changes`** mas você editou o handler, force o reempacotamento: `rm -f terraform/03-api/build/api.zip && terraform -chdir=terraform/03-api apply -auto-approve`.
 
-<!-- PRINT SUGERIDO: img/api.png
-     Terminal mostrando o curl para $API/faturamento e o JSON de faturamento por cidade retornado. -->
-![](img/api.png)
+> 📸 **Print sugerido:** o terminal mostrando o `curl` para `$API/faturamento` e o JSON de faturamento por cidade retornado.
 
 <details>
-<summary><b>⚠ Se der erro: <code>{"erro": "resumo ainda nao gerado"}</code> (404)</b></summary>
+<summary><b>⚠ Se der erro: <code>{"erro": "resumo ainda nao gerado; rode o bloco 2"}</code> (404)</b></summary>
 <blockquote>
 A API funcionou, mas o `resumo/faturamento.json` não existe no S3 — você provavelmente pulou ou errou o Bloco 2. Volte ao passo 8, gere o resumo, e consulte a API de novo.
 </blockquote>
