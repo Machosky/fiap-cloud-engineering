@@ -76,13 +76,16 @@ garante_efs_montado() {
   local mnt="mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${efs_ip}:/ /efs"
   log "==> Verificando se /efs esta montado como EFS (nao disco local)..."
   for tentativa in $(seq 1 6); do
-    montado=$(ssm_exec "$instance" "mountpoint -q /efs && echo MONTADO || echo NAO" | tr -d '[:space:]')
+    # `|| true`: uma tentativa que falha nao pode derrubar o script (set -e) —
+    # o loop existe justamente para tentar de novo. O mount so acerta quando o
+    # mount target do EFS termina de subir, o que pode levar algumas tentativas.
+    montado=$(ssm_exec "$instance" "mountpoint -q /efs && echo MONTADO || echo NAO" | tr -d '[:space:]' || true)
     if [ "$montado" = "MONTADO" ]; then
       log "    /efs montado. OK."
       break
     fi
     log "    ainda nao montado (tentativa $tentativa/6) — tentando montar via IP ${efs_ip}..."
-    ssm_exec "$instance" "sudo mkdir -p /efs && sudo $mnt && sudo mkdir -p /efs/pedidos" >/dev/null
+    ssm_exec "$instance" "sudo mkdir -p /efs && sudo $mnt && sudo mkdir -p /efs/pedidos" >/dev/null 2>&1 || true
     sleep 20
   done
 
@@ -90,11 +93,11 @@ garante_efs_montado() {
   # DEPOIS de o user-data plantar, os arquivos foram para o disco local e o /efs
   # (agora montado) esta vazio — entao replantamos a partir do dataset que o
   # user-data deixou em /tmp/pedidos.json na propria EC2.
-  n=$(ssm_exec "$instance" "ls /efs/pedidos 2>/dev/null | wc -l" | tr -d '[:space:]')
+  n=$(ssm_exec "$instance" "ls /efs/pedidos 2>/dev/null | wc -l" | tr -d '[:space:]' || true)
   if [ "${n:-0}" != "10" ]; then
     log "    /efs tem '${n:-0}' pedidos (esperado 10) — replantando no EFS montado..."
-    ssm_exec "$instance" "sudo mkdir -p /efs/pedidos; jq -c '.[]' /tmp/pedidos.json | while read -r p; do id=\$(echo \"\$p\" | jq -r '.pedido_id'); echo \"\$p\" | sudo tee /efs/pedidos/\$id.json >/dev/null; done; ls /efs/pedidos | wc -l" >/dev/null
-    n=$(ssm_exec "$instance" "ls /efs/pedidos 2>/dev/null | wc -l" | tr -d '[:space:]')
+    ssm_exec "$instance" "sudo mkdir -p /efs/pedidos; jq -c '.[]' /tmp/pedidos.json | while read -r p; do id=\$(echo \"\$p\" | jq -r '.pedido_id'); echo \"\$p\" | sudo tee /efs/pedidos/\$id.json >/dev/null; done; ls /efs/pedidos | wc -l" >/dev/null 2>&1 || true
+    n=$(ssm_exec "$instance" "ls /efs/pedidos 2>/dev/null | wc -l" | tr -d '[:space:]' || true)
   fi
 
   if [ "${n:-0}" = "10" ]; then
