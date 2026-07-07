@@ -21,6 +21,36 @@ Você é o engenheiro de dados da **PedeJá**. Os pedidos hoje vivem num **servi
 
 Acompanhe o caminho do dado no diagrama acima: os pedidos saem do **EFS legado**, a **EC2** faz o `aws s3 sync` para o prefixo `raw/` do **S3**, a **Lambda PROCESSA (Graviton)** lê esse prefixo e grava o faturamento em `resumo/`, e a **Lambda API (Graviton) + API Gateway** servem o resultado no `GET /faturamento`.
 
+> [!CAUTION]
+> **Custo de deixar a infra de pé: ~US$ 0,02/hora (~US$ 0,50/dia), mesmo sem nenhuma chamada.** O grande responsável é a **EC2 `t3.small`**, que cobra por hora ligada 24/7 faça você algo ou não. **EFS**, **Lambda**, **API Gateway** e **S3** são pay-per-use — parados custam ~US$ 0. **Não deixe isso rodando.** A entrega é código + prints, então nada te prende à infra: se você **não vai terminar hoje**, o certo é **destruir tudo** (passo 14) e **subir de novo** (passo 1) quando retomar. É idempotente — sobe igualzinho.
+
+<details>
+<summary>💡 <b>Não vai terminar numa sentada só? O ritual de descer e subir a infra a cada sessão</b></summary>
+<blockquote>
+
+Como a entrega são **prints e código** (e o código está versionado / no seu zip), **nada é perdido** ao destruir a infra — só os recursos AWS que geram custo. Então, se o trabalho vai durar mais de um dia:
+
+**Ao parar** (fim de cada sessão de trabalho) — destrua tudo, na ordem inversa da criação:
+
+```bash
+cd /workspaces/fiap-cloud-engineering/04-Trabalho-Final
+terraform -chdir=terraform/03-api destroy -auto-approve
+terraform -chdir=terraform/02-processa destroy -auto-approve
+terraform -chdir=terraform/01-storage destroy -auto-approve
+```
+
+**Ao retomar** (início da próxima sessão) — suba tudo de novo:
+
+```bash
+cd /workspaces/fiap-cloud-engineering/04-Trabalho-Final
+bash scripts/init.sh
+```
+
+O `init.sh` recria a EC2, o EFS e replanta os 10 pedidos do zero — o dataset é **determinístico**, então os números batem igual. **Atenção às variáveis de sessão:** o `BUCKET` continua o mesmo (deriva do seu número de conta), mas a **EC2 e a API são recursos novos**, então `INSTANCE_ID` e `API` **mudam**. Ao retomar, rode de novo o bloco de `export` que recarrega essas variáveis (o mesmo do início do Bloco 1) antes de continuar — não reaproveite o `API_URL` da sessão anterior.
+
+</blockquote>
+</details>
+
 ## Principais pontos de aprendizagem
 
 - Migrar dados de **file storage (EFS)** para **object storage (S3)** e por que essa é a direção certa para um data lake analítico.
