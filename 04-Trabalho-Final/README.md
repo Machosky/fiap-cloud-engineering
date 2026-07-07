@@ -195,25 +195,39 @@ Agora `df -h /efs` deve mostrar `${EFS_IP}:/` (tipo `nfs4`) e o `ls` deve dar `1
 </details>
 
 <a id="passo-5"></a>
-**5.** **Ainda na sessão SSM da EC2**, migre os pedidos do EFS legado para o data lake S3. O bucket é sempre `pedeja-datalake-<sua-conta>` — o comando monta o nome sozinho (a variável do passo 2 não existe aqui, pois este é outro terminal):
+**5.** **Ainda na sessão SSM da EC2**, migre os pedidos do EFS legado para o data lake S3. **Esta é a operação central do Bloco 1 — você monta o comando.**
+
+Primeiro, descubra o nome do bucket (a variável `$BUCKET` do passo 2 não existe aqui — é outro terminal). O bucket é sempre `pedeja-datalake-<sua-conta>`:
 
 ```bash
 BUCKET="pedeja-datalake-$(aws sts get-caller-identity --query Account --output text)"
-aws s3 sync /efs/pedidos s3://$BUCKET/raw/ --region us-east-1
+```
+
+Agora **construa você mesmo** o comando que faz a migração. O que ele precisa garantir:
+
+- **origem:** a pasta dos pedidos no EFS montado → `/efs/pedidos`
+- **destino:** o prefixo `raw/` do data lake → `s3://$BUCKET/raw/`
+- **região:** `us-east-1`
+
+> 💡 Baseie-se na demo **02.1 (Storage)**: existe um subcomando da AWS CLI que **sincroniza** uma pasta local com um prefixo do S3, copiando só o que ainda não está lá (é incremental e idempotente). É o mesmo subcomando que você usou para popular um bucket a partir de arquivos. Descubra qual é e monte a linha com a origem, o destino e a região acima.
+
+Depois de migrar, confira o resultado (este é o **go/no-go** da migração):
+
+```bash
 aws s3 ls s3://$BUCKET/raw/ --region us-east-1 | wc -l
 ```
 
-Saída esperada: 10 linhas `upload: ... to s3://.../raw/PED-000X.json`, e ao final `10` (o **go/no-go** da migração). Se não deu 10, espere alguns segundos e rode o `sync` de novo.
+Saída esperada: **`10`**. Se não deu 10, revise seu comando de migração (origem/destino corretos?), espere alguns segundos e rode de novo — a operação é idempotente, repetir não duplica nada.
 
-> 📸 **Print obrigatório** — salve como `prints/03-migracao-efs-s3.png`. Capture a saída do `aws s3 sync` mostrando os 10 uploads para `raw/` e o `10` final da conferência.
+> 📸 **Print obrigatório** — salve como `prints/03-migracao-efs-s3.png`. Capture a saída do **seu** comando de migração mostrando os 10 uploads para `raw/` e o `10` final da conferência.
 
 <details>
-<summary><b>💡 Clique para entender — por que <code>aws s3 sync</code> e não copiar pelo laptop</b></summary>
+<summary><b>💡 Clique para entender — por que rodar isso de dentro da EC2 (e não pelo laptop)</b></summary>
 <blockquote>
 
-O `aws s3 sync` roda **de dentro da EC2**, que já enxerga o EFS montado e tem permissão S3 pela `LabInstanceProfile`. Os bytes vão direto da rede AWS para o S3, sem passar pela sua máquina. É a mesma lição da demo de Storage: mantenha o dado perto de onde ele é processado, não force um round-trip pelo cliente.
+O comando de migração roda **de dentro da EC2**, que já enxerga o EFS montado e tem permissão S3 pela `LabInstanceProfile`. Os bytes vão direto da rede AWS para o S3, sem passar pela sua máquina. É a mesma lição da demo de Storage: mantenha o dado perto de onde ele é processado, não force um round-trip pelo cliente.
 
-O `sync` também é **idempotente** — se você rodar de novo, ele só copia o que mudou. Rodar duas vezes não duplica nada.
+O subcomando de **sincronização** que você montou também é **idempotente** — se rodar de novo, ele só copia o que mudou. Rodar duas vezes não duplica nada.
 
 </blockquote>
 </details>
